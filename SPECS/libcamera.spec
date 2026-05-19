@@ -1,26 +1,25 @@
+# RHEL does not include all documentation dependencies (e.g. sphinxcontrib-doxylink)
+%bcond docs %{undefined rhel}
+
 Name:    libcamera
-Version: 0.3.2
-Release: 3%{?dist}
+Version: 0.6.0
+Release: 1%{?dist}
 Summary: A library to support complex camera ISPs
 # see .reuse/dep5 and COPYING for details
 License: LGPL-2.1-or-later
 URL:     http://libcamera.org/
 
-# Upstream is still under development and does not release tarballs,
-# but they do tag releases (https://git.libcamera.org/libcamera/libcamera.git/)
-#
-# For use the following to do generate a tarball from a git tag:
-#
-# git archive --format=tar --prefix=%%{name}-%%{version}/ %%{version} | xz > %%{name}-%%{version}.tar.xz
-Source0: %{name}-%{version}.tar.xz
+Source0: https://gitlab.freedesktop.org/camera/libcamera/-/archive/v%{version}/%{name}-v%{version}.tar.bz2
 Source1: qcam.desktop
 Source2: qcam.metainfo.xml
 Source3: 70-libcamera.rules
 
+# disable rpi/pisp
+Patch01: 0001-disable-rpi-pisp.patch
+
 # libcamera does not currently build on these architectures
 ExcludeArch: s390x ppc64le
 
-BuildRequires: doxygen
 BuildRequires: gcc-c++
 BuildRequires: desktop-file-utils
 BuildRequires: meson
@@ -47,6 +46,14 @@ BuildRequires: python3-pyyaml
 BuildRequires: python3-sphinx
 BuildRequires: SDL2-devel
 BuildRequires: systemd-devel
+%if %{with docs}
+BuildRequires: doxygen
+BuildRequires: python3-sphinx
+BuildRequires: python3-sphinxcontrib-doxylink
+%endif
+
+# Installing the firmware to ensure the Intel MIPI camera works
+Recommends:    intel-vsc-firmware
 # libcamera is not really usable without its IPA plugins
 Recommends: %{name}-ipa%{?_isa}
 
@@ -66,12 +73,14 @@ Requires:    %{name}%{?_isa} = %{version}-%{release}
 %description devel
 Files for development with %{name}.
 
+%if %{with docs}
 %package     doc
 Summary:     Documentation for %{name}
 License:     LGPL-2.1-or-later AND CC-BY-4.0
 
 %description doc
 HTML based documentation for %{name} including getting started and API.
+%endif
 
 %package     ipa
 Summary:     ISP Image Processing Algorithm Plugins for %{name}
@@ -120,7 +129,7 @@ Requires:    %{name}%{?_isa} = %{version}-%{release}
 Python bindings for %{name}
 
 %prep
-%autosetup -p1
+%autosetup -p1 -n %{name}-v%{version}
 
 %build
 # cam/qcam crash with LTO
@@ -128,7 +137,9 @@ Python bindings for %{name}
 export CFLAGS="%{optflags} -Wno-deprecated-declarations"
 export CXXFLAGS="%{optflags} -Wno-deprecated-declarations"
 
-%meson -Dv4l2=true -Dlc-compliance=disabled -Dtracing=disabled
+%meson -Dv4l2=true -Dlc-compliance=disabled \
+       -Dlibunwind=disabled -Dtracing=disabled %{!?with_docs:-Ddocumentation=disabled}
+
 %meson_build
 
 # Stripping requires the re-signing of IPA libraries, manually
@@ -137,7 +148,7 @@ export CXXFLAGS="%{optflags} -Wno-deprecated-declarations"
     %{?__debug_package:%{__debug_install_post}} \
     %{__arch_install_post} \
     %{__os_install_post} \
-    %{_builddir}/%{name}-%{version}/src/ipa/ipa-sign-install.sh %{_builddir}/%{name}-%{version}/%{_vpath_builddir}/src/ipa-priv-key.pem %{buildroot}/%{_libdir}/libcamera/ipa_*.so \
+    %{_builddir}/%{name}-v%{version}/src/ipa/ipa-sign-install.sh %{_builddir}/%{name}-%{version}/%{_vpath_builddir}/src/ipa-priv-key.pem %{buildroot}/%{_libdir}/libcamera/ipa_*.so \
 %{nil}
 
 %install
@@ -162,7 +173,7 @@ rm -rf ${RPM_BUILD_ROOT}/%{_docdir}/%{name}-*/html/.doctrees
 %files
 %license COPYING.rst LICENSES/LGPL-2.1-or-later.txt
 # We leave the version here explicitly to know when it bumps
-%{_libdir}/libcamera*.so.0.3
+%{_libdir}/libcamera*.so.0.6
 %{_libdir}/libcamera*.so.%{version}
 %{_udevrulesdir}/70-libcamera.rules
 
@@ -172,8 +183,10 @@ rm -rf ${RPM_BUILD_ROOT}/%{_docdir}/%{name}-*/html/.doctrees
 %{_libdir}/pkgconfig/libcamera-base.pc
 %{_libdir}/pkgconfig/libcamera.pc
 
+%if %{with docs}
 %files doc
 %doc %{_docdir}/%{name}-*/
+%endif
 
 %files ipa
 %{_datadir}/libcamera/
@@ -201,6 +214,12 @@ rm -rf ${RPM_BUILD_ROOT}/%{_docdir}/%{name}-*/html/.doctrees
 %{python3_sitearch}/*
 
 %changelog
+* Wed Dec 03 2025 Kate Hsuan <hpa@redhat.com> - 0.6.0-1
+- Update to the latest upstream version (RHEL-132576)
+
+* Mon Sep 08 2025 Kate Hsuan <hpa@redhat.com> - 0.3.2-4
+- Add a weak dependency to intel-vsc-firmware
+
 * Mon Mar 03 2025 Kate Hsuan <hpa@redhat.com> - 0.3.2-3
 - Drop the lttng-ust dependency
 - Disable tracing
